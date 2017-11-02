@@ -1,0 +1,678 @@
+#! /usr/bin/perl
+
+#
+# check_ntp_health
+# A plugin for the Shinken and Nagios monitoring systems which checks
+# the ntp daemon on Unix servers.
+#
+# Copyright 2012 Gerhard Lausser <gerhard.lausser@consol.de>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Affero General Public License for more details.
+# 
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+#
+# 1.0 - 2012-03-15
+#       initial public release
+#
+
+package Chrony;
+our @ISA = (NTP);
+use strict;
+my %ERRORS=( OK => 0, WARNING => 1, CRITICAL => 2, UNKNOWN => 3 );
+my %ERRORCODES=( 0 => 'OK', 1 => 'WARNING', 2 => 'CRITICAL', 3 => 'UNKNOWN' );
+
+sub new {
+  my $this = shift;
+  my %params = @_;
+  my $class = ref($this) || $this;
+  my $self = {
+      status => $ERRORS{OK},
+      perfdata => '',
+  };
+  $self->{thresholds} = {
+      owarn => 60, # 1 minute
+      ocrit => 120, # 2 minutes
+  };
+  bless $self, $class;
+  $self->init_paths();
+  $self->init();
+  return $self;
+}
+
+sub init_paths {
+  my $self = shift;
+  $self->{chronyc} = "/usr/bin/chronyc";
+}
+
+sub init {
+  my $self = shift;
+  $self->{peers} = [];
+  $self->init_nagios();
+  $self->init_chronyc();
+}
+
+sub init_chronyc {
+  my $self = shift;
+  if (open(NTPQ, $self->{chronyc}." sources 2>&1 |") ) {
+    my $peer = {};
+    while (<NTPQ>) {
+      chomp;
+      if (/^(.)(.)\s+([^\s]+?)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s+([+-]*\d+[\w]+)\s*\[\s*([+-]*\d+[\w]+)\]\s+\+\/\-\s+(\d+\w+)/) {
+        push(@{$self->{peers}}, Chrony::Peer->new(
+            mode => $1,
+            state => $2,
+            refid => $3,
+            stratum => $4,
+            poll => $5, 
+            reach => $6,
+            lastrx => $7,
+            adjusted => $8,
+            measured => $9,
+            error => $10,
+            thresholds => $self->{thresholds},
+        ));
+      }
+    }
+    close NTPQ;
+  } else {
+    $self->add_nagios_critical(sprintf 'cannot open %s', $self->{ntpq});
+  }
+}
+
+sub get_sync_peer {
+  my $self = shift;
+  my @sync_peers = grep {
+      $_->synched()
+  } grep {
+      $_->is_server() || $_->is_peer() } $self->get_peers();
+  if (@sync_peers) {
+    return $sync_peers[0];
+  } else {
+    return undef;
+  }
+}
+
+
+package Chrony::Peer;
+our @ISA = qw(NTP);
+use strict;
+my %ERRORS=( OK => 0, WARNING => 1, CRITICAL => 2, UNKNOWN => 3 );
+my %ERRORCODES=( 0 => 'OK', 1 => 'WARNING', 2 => 'CRITICAL', 3 => 'UNKNOWN' );
+
+sub new {
+  my $this = shift;
+  my %params = @_;
+  my $class = ref($this) || $this;
+  my $self = {
+      status => $ERRORS{OK},
+      perfdata => '',
+  };
+  foreach (qw(mode state refid stratum poll reach lastrx adjusted measured error thresholds)) {
+    $self->{$_} = $params{$_};
+  }
+  if ($self->{measured} =~ /([\+\-])(\d+)([nums])/) {
+    $self->{measured} = $2 / 1000000000  if $3 eq 'n';
+    $self->{measured} = $2 / 1000000  if $3 eq 'u';
+    $self->{measured} = $2 / 1000  if $3 eq 'm';
+    $self->{measured} *= -1 if $1 eq "-";
+  }
+  bless $self, $class;
+  $self->init();
+  return $self;
+}
+
+sub init {
+  my $self = shift;
+  $self->init_nagios();
+}
+
+sub synched {
+  my $self = shift;
+  return $self->{state} eq '*';
+}
+
+sub is_server {
+  my $self = shift;
+  return $self->{mode} eq '^';
+}
+
+sub is_peer {
+  my $self = shift;
+  return $self->{mode} eq '=';
+}
+
+sub is_candidate {
+  my $self = shift;
+  return $self->{state} eq '+';
+}
+
+sub nagios {
+  my $self = shift;
+  if (defined($self->{measured})) {
+    if (abs($self->{measured}) > $self->{thresholds}->{ocrit}) {
+      $self->add_nagios_critical(
+          sprintf "Offset %.8f sec > +/- %.8f sec",
+              $self->{measured}, $self->{thresholds}->{ocrit});
+    } elsif (abs($self->{measured}) > $self->{thresholds}->{owarn}) {
+      $self->add_nagios_warning(
+          sprintf "Offset %.8f sec > +/- %.8f sec",
+              $self->{measured}, $self->{thresholds}->{owarn});
+    } else {
+      $self->add_nagios_ok(
+          sprintf "Offset %.8f sec",
+              $self->{measured});
+    }
+    $self->add_perfdata(sprintf "offset=%.8f", $self->{measured});
+  } else {
+    $self->add_nagios_unknown("Measured offset is unknown");
+  }
+}
+
+package NTP;
+
+use strict;
+use constant NTP_OK => 0;
+use constant NTP_TIMEOUT => 1;
+use constant NTP_CONNREFUSED => 2;
+use constant NTP_NOASSOC => 3;
+my %ERRORS=( OK => 0, WARNING => 1, CRITICAL => 2, UNKNOWN => 3 );
+my %ERRORCODES=( 0 => 'OK', 1 => 'WARNING', 2 => 'CRITICAL', 3 => 'UNKNOWN' );
+
+
+sub new {
+  my $this = shift;
+  my %params = @_;
+  my $class = ref($this) || $this;
+  my $self = { 
+      status => $ERRORS{OK},
+      perfdata => '',
+  };
+  $self->{thresholds} = {
+      owarn => 60, # 1 minute
+      ocrit => 120, # 2 minutes
+      jwarn => 5, # 5 seconds
+      jcrit => 10, # 10 seconds
+  };
+  bless $self, $class;
+  $self->init_paths();
+  $self->init();
+  return $self;
+}
+
+sub init_paths {
+  my $self = shift;
+  $self->{ntpq} = "/usr/sbin/ntpq";
+  $self->{ntpdate} = "/usr/sbin/ntpdate";
+  $self->{ntpconf} = "/etc/ntp.conf";
+}
+
+sub init {
+  my $self = shift;
+  $self->{peers} = [];
+  $self->init_nagios();
+  $self->init_ntpq();
+}
+
+
+sub init_ntpq {
+  my $self = shift;
+  if (open(NTPQ, $self->{ntpq}." -np 2>&1 |") ) {
+    while (<NTPQ>) {
+    #while (<main::DATA>) {
+      if (/^(.)(.+?)\s+(.+?)\s+(\d+)\s+(.)\s+((\-)|([\d]+[mhd]*))\s+(\d+[mhd]*)\s+(\d+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)/) {
+        push(@{$self->{peers}}, NTP::Peer->new(
+            fate => $1,
+            remote => $2,
+            refid => $3,
+            stratum => $4,
+            type => $5,
+            when => $6,  # includes ($7|$8)
+            poll => $9, 
+            reach => $10,
+            delay => $11 / 1000.0,
+            offset => $12 / 1000.0,
+            jitter => $13 / 1000.0,
+            thresholds => $self->{thresholds},
+        ));
+      } elsif (/===========/ || /remote.*refid.*st.*t.*when.*poll/) {
+        # column headers and separator line
+      } elsif (/timed out/) {
+        $self->add_nagios_critical('ntpq timeout');
+        last;
+      } elsif (/Connection refused/) {
+        $self->add_nagios_critical('ntpq connection refused');
+        last;
+      } elsif (/No association ID's returned/) {
+        $self->add_nagios_critical('ntpq: No association ID\'s returned');
+        last;
+      } else {
+        # 160.50.46.11    160.51.94.15     2 u 136m 1024
+        die "cannot parse ".$_;
+      }
+    }
+    close NTPQ;
+  } else {
+    $self->add_nagios_critical(sprintf 'cannot open %s', $self->{ntpq});
+  }
+}
+
+sub init_ntpdate {
+  my $self = shift;
+  if (open(NTPCONF, $self->{ntpconf})) {
+    while (<NTPCONF>) {
+      if (/^(server|peer)\s+(.+?)\s*/) {
+        my $peer = $1;
+        next if $peer =~ /127\.127/;
+        if (open(NTPDATE, $self->{ntpdate}." -q 2>&1 |") ) {
+          while (<NTPDATE>) {
+            if (/server ([\d\.]+), stratum (\d+), offset ([\d\.\-]+), delay ([\d\.\-]+)/) {
+              push(@{$self->{peers}}, NTP::Peer->new(
+                  fate => '+',  # classify this peer as potential candidat
+                  remote => $1,
+                  stratum => $2,
+                  type => 'X',
+                  offset => $3,
+                  delay => $4,
+                  thresholds => $self->{thresholds},
+              ));
+            }
+          }
+          close NTPDATE;
+        }
+      }
+    }
+    close NTPCONF;
+  }
+}
+
+sub get_peers {
+  my $self = shift;
+  return @{$self->{peers}};
+}
+
+sub get_sync_peer {
+  my $self = shift;
+  my @sync_peers = grep { $_->is_sys_peer() || $_->is_pps_peer() } $self->get_peers();
+  if (@sync_peers) {
+    return $sync_peers[0];
+  } else {
+    return undef;
+  }
+}
+
+sub get_candidates {
+  my $self = shift;
+  return grep { $_->is_candidate() } @{$self->{peers}};
+}
+
+sub get_peer_quality {
+  my $self = shift;
+  return grep { $_->is_sys_peer() || $_->is_pps_peer() } @{$self->{peers}};
+}
+
+sub nagios {
+  my $self = shift;
+  if (! $self->{nagios_level}) {
+    if (my $sync_peer = $self->get_sync_peer()) {
+      $sync_peer->nagios();
+      $self->merge_nagios($sync_peer);
+    } elsif (my @candidates = $self->get_candidates()) {
+      foreach (@candidates) {
+        $_->nagios();
+        $self->merge_nagios($_);
+      }
+      $self->add_nagios_warning('no sync peer, only candidates');
+    } else {
+      $self->add_nagios_warning('no sync peer, no candidates. ');
+    }
+  } else {
+  #    $self->{instance}->nagios(%params);
+  #    $self->merge_nagios($self->{instance});
+  }
+}
+
+sub init_nagios {
+  my $self = shift;
+  no strict 'refs';
+  if (! ref($self)) {
+    my $nagiosvar = $self."::nagios";
+    my $nagioslevelvar = $self."::nagios_level";
+    $$nagiosvar = {
+      messages => {
+        0 => [],
+        1 => [],
+        2 => [],
+        3 => [],
+      },
+      perfdata => [],
+    };
+    $$nagioslevelvar = $ERRORS{OK},
+  } else {
+    $self->{nagios} = {
+      messages => {
+        0 => [],
+        1 => [],
+        2 => [],
+        3 => [],
+      },
+      perfdata => [],
+    };
+    $self->{nagios_level} = $ERRORS{OK},
+  }
+}
+
+sub check_thresholds {
+  my $self = shift;
+  my $value = shift;
+  my $defaultwarningrange = shift;
+  my $defaultcriticalrange = shift;
+  my $level = $ERRORS{OK};
+  $self->{warningrange} = defined $self->{warningrange} ?
+      $self->{warningrange} : $defaultwarningrange;
+  $self->{criticalrange} = defined $self->{criticalrange} ?
+      $self->{criticalrange} : $defaultcriticalrange;
+  if ($self->{warningrange} !~ /:/ && $self->{criticalrange} !~ /:/) {
+    # warning = 10, critical = 20, warn if > 10, crit if > 20
+    $level = $ERRORS{WARNING} if $value > $self->{warningrange};
+    $level = $ERRORS{CRITICAL} if $value > $self->{criticalrange};
+  } elsif ($self->{warningrange} =~ /(\d+):/ && 
+      $self->{criticalrange} =~ /(\d+):/) { 
+    # warning = 98:, critical = 95:, warn if < 98, crit if < 95
+    $self->{warningrange} =~ /(\d+):/;
+    $level = $ERRORS{WARNING} if $value < $1;
+    $self->{criticalrange} =~ /(\d+):/;
+    $level = $ERRORS{CRITICAL} if $value < $1;
+  } 
+  return $level;
+  #
+  # syntax error must be reported with returncode -1
+  #
+}
+
+sub add_nagios {
+  my $self = shift;
+  my $level = shift;
+  my $message = shift;
+  push(@{$self->{nagios}->{messages}->{$level}}, $message);
+  # recalc current level
+  foreach my $llevel (qw(CRITICAL WARNING UNKNOWN OK)) {
+    if (scalar(@{$self->{nagios}->{messages}->{$ERRORS{$llevel}}})) {
+      $self->{nagios_level} = $ERRORS{$llevel};
+    }
+  }
+}
+
+sub add_nagios_ok {
+  my $self = shift;
+  my $message = shift;
+  $self->add_nagios($ERRORS{OK}, $message);
+}
+
+sub add_nagios_warning {
+  my $self = shift;
+  my $message = shift;
+  $self->add_nagios($ERRORS{WARNING}, $message);
+}
+
+sub add_nagios_critical {
+  my $self = shift;
+  my $message = shift;
+  $self->add_nagios($ERRORS{CRITICAL}, $message);
+}
+
+sub add_nagios_unknown {
+  my $self = shift;
+  my $message = shift;
+  $self->add_nagios($ERRORS{UNKNOWN}, $message);
+}
+
+sub add_perfdata {
+  my $self = shift;
+  my $data = shift;
+  push(@{$self->{nagios}->{perfdata}}, $data);
+}
+
+sub merge_nagios {
+  my $self = shift;
+  my $child = shift;
+  foreach my $level (0..3) {
+    foreach (@{$child->{nagios}->{messages}->{$level}}) {
+      $self->add_nagios($level, $_);
+    }
+    #push(@{$self->{nagios}->{messages}->{$level}},
+    #    @{$child->{nagios}->{messages}->{$level}});
+  }
+  push(@{$self->{nagios}->{perfdata}}, @{$child->{nagios}->{perfdata}});
+}
+
+
+sub calculate_result {
+  my $self = shift;
+  if (exists $self->{identstring}) {
+    $self->{nagios_message} .= $self->{identstring};
+  }
+  if ($ENV{NRPE_MULTILINESUPPORT} &&
+      length join(" ", @{$self->{nagios}->{perfdata}}) > 200) {
+    foreach my $level ("CRITICAL", "WARNING", "UNKNOWN", "OK") {
+      # first the bad news
+      if (scalar(@{$self->{nagios}->{messages}->{$ERRORS{$level}}})) {
+        $self->{nagios_message} .=
+            "\n".join("\n", @{$self->{nagios}->{messages}->{$ERRORS{$level}}});
+      }
+    }
+    $self->{nagios_message} =~ s/^\n//g;
+    $self->{perfdata} = join("\n", @{$self->{nagios}->{perfdata}});
+  } else {
+    foreach my $level ("CRITICAL", "WARNING", "UNKNOWN", "OK") {
+      # first the bad news
+      if (scalar(@{$self->{nagios}->{messages}->{$ERRORS{$level}}})) {
+        $self->{nagios_message} .=
+            join(", ", @{$self->{nagios}->{messages}->{$ERRORS{$level}}}).", ";
+      }
+    }
+    $self->{nagios_message} =~ s/, $//g;
+    $self->{perfdata} = join(" ", @{$self->{nagios}->{perfdata}});
+  }
+  foreach my $level ("OK", "UNKNOWN", "WARNING", "CRITICAL") {
+    if (scalar(@{$self->{nagios}->{messages}->{$ERRORS{$level}}})) {
+      $self->{nagios_level} = $ERRORS{$level};
+    }
+  }
+}
+
+
+
+package NTP::Peer;
+our @ISA = qw(NTP);
+use strict;
+my %ERRORS=( OK => 0, WARNING => 1, CRITICAL => 2, UNKNOWN => 3 );
+my %ERRORCODES=( 0 => 'OK', 1 => 'WARNING', 2 => 'CRITICAL', 3 => 'UNKNOWN' );
+
+sub new {
+  my $this = shift;
+  my %params = @_;
+  my $class = ref($this) || $this;
+  my $self = { 
+      status => $ERRORS{OK},
+      perfdata => '',
+  };
+  foreach (qw(fate remote refid stratum type when poll reach delay offset jitter thresholds)) {
+    $self->{$_} = $params{$_};
+  }
+  if ($self->{when} =~ /(\d+)([mhd])/) {
+    $self->{when} = $1 * 60 if $2 eq 'm';
+    $self->{when} = $1 * 3600 if $2 eq 'h';
+    $self->{when} = $1 * 3600 * 24 if $2 eq 'd';
+  }
+  bless $self, $class;
+  $self->init();
+  return $self;
+}
+
+sub init {
+  my $self = shift;
+  $self->init_nagios();
+}
+
+# space reject
+# The peer is discarded as unreachable, synchronized to this server (synch loop)
+# or outrageous synchronization distance.
+
+# x  falsetick
+# The peer is discarded by the intersection algorithm as a falseticker.
+
+# .  excess
+# The peer is discarded as not among the first ten peers sorted by
+# synchronization distance and so is probably a poor candidate for
+# further consideration.
+
+# -  outlyer
+# The peer is discarded by the clustering algorithm as an outlyer.
+
+# +  candidat
+# The peer is a survivor and a candidate for the combining algorithm.
+
+# #  selected
+# The peer is a survivor, but not among the first six peers sorted
+# by synchronization distance. If the assocation is ephemeral,
+# it may be demobilized to conserve resources.
+
+# *  sys.peer
+# The peer has been declared the system peer and lends its variables
+# to the system variables.
+
+# o  pps.peer
+# The peer has been declared the system peer and lends its variables to the
+# system variables. However, the actual system synchronization is derived
+# from a pulse-per-second (PPS) signal, either indirectly via the PPS
+# reference clock driver or directly via kernel interface.
+
+sub is_sys_peer {
+  my $self = shift;
+  return $self->{fate} eq '*';
+}
+
+sub is_pps_peer {
+  my $self = shift;
+  return $self->{fate} eq 'o';
+}
+
+sub is_candidate {
+  my $self = shift;
+  return $self->{fate} eq '+';
+}
+
+sub is_falsetick {
+  my $self = shift;
+  return $self->{fate} eq 'x';
+}
+
+sub is_excess {
+  my $self = shift;
+  return $self->{fate} eq '.';
+}
+
+sub is_outlyer {
+  my $self = shift;
+  return $self->{fate} eq '-';
+}
+
+sub is_selected {
+  my $self = shift;
+  return $self->{fate} eq '#';
+}
+
+sub is_reject {
+  my $self = shift;
+  return $self->{fate} eq ' ';
+}
+
+sub nagios {
+  my $self = shift;
+  if (defined($self->{offset}) && defined($self->{jitter})) {
+    if (abs($self->{offset}) > $self->{thresholds}->{ocrit}) {
+      $self->add_nagios_critical(
+          sprintf "Offset %.4f sec > +/- %.4f sec, jitter %.4f sec",
+              $self->{offset}, $self->{thresholds}->{ocrit}, $self->{jitter});
+    } elsif (abs($self->{jitter}) > $self->{thresholds}->{jcrit}) {
+      $self->add_nagios_critical(
+          sprintf "Jitter %.4f sec > +/- %.4f sec, offset %.4f sec", 
+              $self->{jitter}, $self->{thresholds}->{jcrit}, $self->{offset});
+    } elsif (abs($self->{offset}) > $self->{thresholds}->{owarn}) {
+      $self->add_nagios_warning(
+          sprintf "Offset %.4f sec > +/- %.4f sec, jitter %.4f sec", 
+              $self->{offset}, $self->{thresholds}->{owarn}, $self->{jitter});
+    } elsif (abs($self->{jitter}) > $self->{thresholds}->{jwarn}) {
+      $self->add_nagios_warning(
+          sprintf "Jitter %.4f sec > +/- %.4f sec, offset %.4f sec", 
+              $self->{jitter}, $self->{thresholds}->{jwarn}, $self->{offset});
+    } else {
+      $self->add_nagios_ok(
+          sprintf "Offset %.4f sec, jitter %.4f sec", 
+              $self->{offset}, $self->{jitter});
+    }
+    $self->add_perfdata(sprintf "offset=%.4f", $self->{offset});
+    $self->add_perfdata(sprintf "jitter=%.4f", $self->{jitter});
+    $self->add_perfdata(sprintf "peer_stratum=%d", $self->{stratum});
+  } elsif (defined($self->{offset})) {
+    if (abs($self->{offset}) > $self->{thresholds}->{ocrit}) {
+      $self->add_nagios_critical(
+          sprintf "Offset %.4f sec > +/- %.4f sec",
+              $self->{offset}, $self->{thresholds}->{ocrit});
+    } elsif (abs($self->{offset}) > $self->{thresholds}->{owarn}) {
+      $self->add_nagios_warning(
+          sprintf "Offset %.4f sec > +/- %.4f sec",
+              $self->{offset}, $self->{thresholds}->{owarn});
+    } else {
+      $self->add_nagios_ok(
+          sprintf "Offset %.4f sec",               
+              $self->{offset});
+    }
+    $self->add_perfdata(sprintf "offset=%.4f", $self->{offset});
+  } else {
+    $self->add_nagios_unknown("Offset and jitter are unknown");
+  }
+}
+
+
+package main;
+use strict;
+my %ERRORS=( OK => 0, WARNING => 1, CRITICAL => 2, UNKNOWN => 3 );
+my %ERRORCODES=( 0 => 'OK', 1 => 'WARNING', 2 => 'CRITICAL', 3 => 'UNKNOWN' );
+
+my $ntp;
+if (-x "/usr/bin/chronyc") {
+  $ntp = Chrony->new();
+} else {
+  $ntp = NTP->new();
+}
+#printf "%s\n", Data::Dumper::Dumper($ntp);
+$ntp->nagios();
+$ntp->calculate_result();
+my $nagios_message = $ntp->{nagios_message};
+my $nagios_level = $ntp->{nagios_level};
+my $perfdata = $ntp->{perfdata};
+
+printf "%s - %s", $ERRORCODES{$nagios_level}, $nagios_message;
+printf " | %s", $perfdata if $perfdata;
+printf "\n";
+exit $nagios_level;
+
+
+__END__
+     remote           refid      st t when poll reach   delay   offset  jitter
+==============================================================================
+ LOCAL(0)        .LOCL.          10 l   51   64  377    0.000    0.000   0.001
+ ntp1.consol.de        11.50.94.10     2 u  200 1024  377    0.265    0.168   0.356
+ ntp2.consol.de        .INIT.          16 u    - 1024    0    0.000    0.000   0.000
+ ntp3.consol.de        11.51.94.15     2 u  326 1024  377    0.286   -0.106   0.174

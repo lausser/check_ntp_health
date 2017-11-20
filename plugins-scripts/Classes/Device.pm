@@ -18,6 +18,11 @@ sub classify {
       } elsif ($self->{productname} =~ /chrony/) {
         bless $self, 'Classes::Chrony';
         $self->debug('using Classes::Chrony');
+      } elsif ($self->{productname} =~ /centrify/) {
+        bless $self, 'Classes::Centrify';
+        $self->debug('using Classes::Centrify');
+      } else {
+        $self->no_such_device();
       }
     }
   }
@@ -29,6 +34,7 @@ sub check_ntp_method {
   my $techniques = {
     "chrony" => 0,
     "ntp" => 0,
+    "centrify" => 0,
   };
   if (-x "/usr/bin/chronyc") {
     $techniques->{chrony}++;
@@ -36,21 +42,38 @@ sub check_ntp_method {
   if (-x "/usr/bin/ntpq" || -x "/usr/sbin/ntpq") {
     $techniques->{ntp}++;
   }
-  if (open PS, "/bin/ps -e -ocmd|") {
+  if (-x "/usr/share/centrifydc/bin/adcheck") {
+    $techniques->{centrify}++;
+    if (-f "/etc/centrifydc/centrifydc.conf") {
+      if (open(CENTRIFY, "/etc/centrifydc/centrifydc.conf")) {
+        foreach (<CENTRIFY>) {
+          $techniques->{centrify}++ if /^\s*adclient\.sntp\.enabled:\s+true/;
+        }
+        close CENTRIFY;
+      }
+    }
+  }
+  my $ps = "/bin/ps -e -ocmd";
+  if ($^Oeq "aix") {
+    $ps = "/bin/ps -e -ocomm,args";
+  }
+  if (open PS, $ps."|") {
     my @procs = <PS>;
     close PS;
     foreach (@procs) {
       $techniques->{ntp}++ if /ntpd/;
       $techniques->{chrony}++ if /chrony/;
+      $techniques->{centrify}++ if /centrify/;
     }
   }
-  if ($techniques->{chrony} == $techniques->{ntp} &&
-      $techniques->{ntp} == 0) {
+  my @sorted_techniques = reverse sort {
+    $techniques->{$a} <=> $techniques->{$b}
+  } keys %{$techniques};
+  my $technique = $sorted_techniques[0];
+  if ($techniques->{$technique} == 0) {
     $self->add_unknown("no known time daemon found");
-  } elsif ($techniques->{chrony} >= $techniques->{ntp}) {
-    $self->{productname} = "chronyc";
   } else {
-    $self->{productname} = "ntp";
+    $self->{productname} = $technique;
   }
 }
 

@@ -13,6 +13,8 @@ EXTRA_MODULES=\
   Classes/Chrony.pm \
   Classes/NTP/Components/TimeSubsystem.pm \
   Classes/NTP.pm \
+  Classes/Centrify/Components/TimeSubsystem.pm \
+  Classes/Centrify.pm \
   Classes/Device.pm
 
 SED=/bin/sed

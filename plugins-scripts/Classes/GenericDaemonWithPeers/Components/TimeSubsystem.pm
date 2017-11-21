@@ -4,6 +4,7 @@ use strict;
 
 sub check {
   my ($self) = @_;
+  (my $type = ref($self)) =~ s/Classes::(.*?)::.*/$1/g;
   if (! $self->check_messages()) {
     if (my $sync_peer = $self->get_sync_peer()) {
       $sync_peer->check();
@@ -11,9 +12,9 @@ sub check {
       foreach (@candidates) {
         $_->check();
       }
-      $self->add_warning('no sync peer, only candidates');
+      $self->add_warning(sprintf 'no %s sync peer, only candidates', lc $type);
     } else {
-      $self->add_warning('no sync peer, no candidates. ');
+      $self->add_warning(sprintf 'no %s sync peer, no candidates', lc $type);
     }
   }
 }

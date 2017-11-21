@@ -42,17 +42,6 @@ sub check_ntp_method {
   if (-x "/usr/bin/ntpq" || -x "/usr/sbin/ntpq") {
     $techniques->{ntp}++;
   }
-  if (-x "/usr/share/centrifydc/bin/adcheck") {
-    $techniques->{centrify}++;
-    if (-f "/etc/centrifydc/centrifydc.conf") {
-      if (open(CENTRIFY, "/etc/centrifydc/centrifydc.conf")) {
-        foreach (<CENTRIFY>) {
-          $techniques->{centrify}++ if /^\s*adclient\.sntp\.enabled:\s+true/;
-        }
-        close CENTRIFY;
-      }
-    }
-  }
   my $ps = "/bin/ps -e -ocmd";
   if ($^Oeq "aix") {
     $ps = "/bin/ps -e -ocomm,args";
@@ -61,19 +50,38 @@ sub check_ntp_method {
     my @procs = <PS>;
     close PS;
     foreach (@procs) {
-      $techniques->{ntp}++ if /ntpd/;
+      $techniques->{ntp}++ if /ntpd(?!:)/; # NO ntpd: asynchronous dns resolver
       $techniques->{chrony}++ if /chrony/;
       $techniques->{centrify}++ if /centrify/;
     }
   }
+  if (-x "/usr/share/centrifydc/bin/adcheck") {
+    if (-f "/etc/centrifydc/centrifydc.conf") {
+      if (open(CENTRIFY, "/etc/centrifydc/centrifydc.conf")) {
+        foreach (<CENTRIFY>) {
+          $techniques->{centrify} = 0 if /^\s*adclient\.sntp\.enabled:\s+false/;
+        }
+        close CENTRIFY;
+      }
+    }
+  }
   my @sorted_techniques = reverse sort {
     $techniques->{$a} <=> $techniques->{$b}
+  } grep {
+    $_ ne "centrify";
   } keys %{$techniques};
   my $technique = $sorted_techniques[0];
   if ($techniques->{$technique} == 0) {
-    $self->add_unknown("no known time daemon found");
+    if ($techniques->{centrify} == 0) {
+      $self->add_unknown("no known time daemon found");
+    } else {
+      $self->{productname} = "centrify";
+    }
   } else {
     $self->{productname} = $technique;
+    if ($techniques->{centrify} != 0) {
+      $self->{productname} .= "_and_centrify";
+    }
   }
 }
 

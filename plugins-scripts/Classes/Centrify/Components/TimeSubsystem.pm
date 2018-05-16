@@ -4,22 +4,24 @@ use strict;
 
 sub init {
   my ($self) = @_;
-  $self->trace("running /usr/bin/adinfo --domain");
+  $self->debug("running /usr/bin/adinfo --domain");
   open(ADINFO, "/usr/bin/adinfo --domain|");
   my @domains = <ADINFO>;
   close ADINFO;
+  $self->debug("response: ".join(",", @domains));
   if (@domains) {
     chomp($self->{domain} = $domains[0]);
   }
   if ($self->{domain} && $self->{domain} =~ /^[\w\.\-_]+$/) {
     $self->create_statefilesdir();
     my $cmd = sprintf "/usr/share/centrifydc/bin/adcheck %s --alldc --test ad --bigdomain 1 --tmp_path %s", $self->{domain}, $self->statefilesdir();
-    $self->trace("running ".$cmd);
+    $self->debug("running ".$cmd);
     open(ADCHECK, $cmd."|");
     my @checks = <ADCHECK>;
     close ADCHECK;
     foreach (@checks) {
       chomp;
+      $self->debug("response: ".$_);
       if (/^TIME.*Check clock synchronization.*:\s*(.*)/) {
         $self->{clock_sync} = lc $1;
       }

@@ -6,7 +6,13 @@ sub init {
   my ($self) = @_;
   $self->{peers} = [];
   my $process = 0;
-  if (open PS, "/bin/ps -e -ocmd|") {
+  my $ps = "/bin/ps -e -ocmd";
+  if ($^O eq "aix") {
+    $ps = "/bin/ps -e -ocomm,args";
+  } elsif ($^O eq "darwin") {
+    $ps = "/bin/ps -e -ocomm,args";
+  }
+  if (open PS, $ps."|") {
     my @procs = <PS>;
     close PS;
     foreach (@procs) {

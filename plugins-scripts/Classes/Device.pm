@@ -37,13 +37,17 @@ sub check_ntp_method {
     "centrify" => 0,
   };
   if (-x "/usr/bin/chronyc") {
+    $self->debug("found a chronyc");
     $techniques->{chrony}++;
   }
   if (-x "/usr/bin/ntpq" || -x "/usr/sbin/ntpq") {
+    $self->debug("found a ntpq");
     $techniques->{ntp}++;
   }
   my $ps = "/bin/ps -e -ocmd";
-  if ($^Oeq "aix") {
+  if ($^O eq "aix") {
+    $ps = "/bin/ps -e -ocomm,args";
+  } elsif ($^O eq "darwin") {
     $ps = "/bin/ps -e -ocomm,args";
   }
   if (open PS, $ps."|") {
@@ -53,13 +57,18 @@ sub check_ntp_method {
       $techniques->{ntp}++ if /ntpd(?!:)/; # NO ntpd: asynchronous dns resolver
       $techniques->{chrony}++ if /chrony/;
       $techniques->{centrify}++ if /centrify/;
+      $self->debug("found a ntpd process") if /ntpd(?!:)/;
+      $self->debug("found a chrony process") if /chrony/;
+      $self->debug("found a centrify process") if /centrify/;
     }
   }
   if (-x "/usr/share/centrifydc/bin/adcheck") {
     if (-f "/etc/centrifydc/centrifydc.conf") {
+      $self->debug("found a centrifydc config");
       if (open(CENTRIFY, "/etc/centrifydc/centrifydc.conf")) {
         foreach (<CENTRIFY>) {
           $techniques->{centrify} = 0 if /^\s*adclient\.sntp\.enabled:\s+false/;
+          $self->{centrify_disabled} = 1 if /^\s*adclient\.sntp\.enabled:\s+false/;
         }
         close CENTRIFY;
       }
@@ -74,6 +83,7 @@ sub check_ntp_method {
   if ($techniques->{$technique} == 0) {
     if ($techniques->{centrify} == 0) {
       $self->add_unknown("no known time daemon found");
+      $self->add_ok("centrify sntp is disabled") if $self->{centrify_disabled};
     } else {
       $self->{productname} = "centrify";
     }
@@ -83,5 +93,6 @@ sub check_ntp_method {
       $self->{productname} .= "_and_centrify";
     }
   }
+  $self->debug("the technique used is ".($self->{productname} || "-none-"));
 }
 

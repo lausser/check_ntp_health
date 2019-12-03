@@ -47,6 +47,8 @@ sub check_ntp_method {
   my $ps = "/bin/ps -e -ocmd";
   if ($^O eq "aix") {
     $ps = "/bin/ps -e -ocomm,args";
+  } elsif ($^O eq "solaris") {
+    $ps = "/bin/ps -e -ocomm,args";
   } elsif ($^O eq "darwin") {
     $ps = "/bin/ps -e -ocomm,args";
   }

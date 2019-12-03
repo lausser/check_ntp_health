@@ -9,6 +9,8 @@ sub init {
   my $ps = "/bin/ps -e -ocmd";
   if ($^O eq "aix") {
     $ps = "/bin/ps -e -ocomm,args";
+  } elsif ($^O eq "solaris") {
+    $ps = "/bin/ps -e -ocomm,args";
   } elsif ($^O eq "darwin") {
     $ps = "/bin/ps -e -ocomm,args";
   }
@@ -24,7 +26,8 @@ sub init {
     return;
   }
   my $ntpq = -x "/usr/bin/ntpq" ? "/usr/bin/ntpq" : "/usr/sbin/ntpq";
-  if (open(NTPQ, $ntpq." -np 2>&1 |") ) {
+  my $ntpserver = $self->opts->hostname || "";
+  if (open(NTPQ, $ntpq." -np ".$ntpserver." 2>&1 |") ) {
     while (<NTPQ>) {
       if (/^(.)(.+?)\s+(.+?)\s+(\d+)\s+(.)\s+((\-)|([\d]+[mhd]*))\s+(\d+[mhd]*)\s+(\d+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)/) {
         push(@{$self->{peers}}, Classes::NTP::Components::TimeSubsystem::Peer->new(

@@ -33,7 +33,13 @@ $plugin->add_mode(
     help => 'Check the status of time daemons, synchronization',
 );
 $plugin->add_default_args();
-
+$plugin->add_arg(
+    spec => 'hostname|H=s',
+    help => '--hostname
+ Hostname or IP-address of an ntp server (local, if ntpd is restricted)',
+    required => 0,
+    env => 'HOSTNAME',
+);
 $plugin->getopts();
 $plugin->classify();
 $plugin->validate_args();

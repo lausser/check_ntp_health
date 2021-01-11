@@ -32,6 +32,23 @@ sub init {
   }
 }
 
+sub get_sync_peer {
+  my ($self) = @_;
+  my @sync_peers = grep {
+      $_->is_synched()
+  } @{$self->{peers}};
+  if (@sync_peers) {
+    return $sync_peers[0];
+  } else {
+    return undef;
+  }
+}
+
+sub get_candidates {
+  my ($self) = @_;
+  return grep { $_->is_candidate() } @{$self->{peers}};
+}
+
 
 package Classes::Chrony::Components::TimeSubsystem::Peer;
 our @ISA = qw(Monitoring::GLPlugin::TableItem);
@@ -46,7 +63,7 @@ sub finish {
   }
 }
 
-sub synched {
+sub is_synched {
   my ($self) = @_;
   return $self->{state} eq '*';
 }
@@ -73,7 +90,7 @@ sub check {
     $self->add_info(sprintf "Offset %.4f sec", $self->{measured});
     $self->set_thresholds(metric => 'offset', warning => 60, critical => 120);
     $self->add_message($self->check_thresholds(
-        metric => 'offset', value => abs($self->{offset})
+        metric => 'offset', value => abs($self->{measured})
     ));
     $self->add_perfdata(
       label => 'offset',

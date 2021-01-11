@@ -66,6 +66,23 @@ sub init {
   }
 }
 
+sub get_sync_peer {
+  my ($self) = @_;
+  my @sync_peers = grep {
+      $_->is_sys_peer() || $_->is_pps_peer()
+  } @{$self->{peers}};
+  if (@sync_peers) {
+    return $sync_peers[0];
+  } else {
+    return undef;
+  }
+}
+
+sub get_candidates {
+  my ($self) = @_;
+  return grep { $_->is_candidate() } @{$self->{peers}};
+}
+
 
 package Classes::NTP::Components::TimeSubsystem::Peer;
 our @ISA = qw(Monitoring::GLPlugin::TableItem);

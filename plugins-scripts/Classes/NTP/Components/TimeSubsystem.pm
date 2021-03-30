@@ -131,6 +131,14 @@ sub finish {
 
 sub is_sys_peer {
   my ($self) = @_;
+  if ($self->{refid} eq ".LOCL.") {
+  # 10.20.15.45  .XFAC.          16 u    - 1024    0    0.000    0.000   0.000
+  # 10.20.15.46  .XFAC.          16 u    - 1024    0    0.000    0.000   0.000
+  # 10.20.15.47  .XFAC.          16 u    - 1024    0    0.000    0.000   0.000
+  # *127.127.1.0 .LOCL.          10 l   47   64  377    0.000    0.000   0.000
+  # sehr schlecht!
+    return 0;
+  }
   return $self->{fate} eq '*';
 }
 

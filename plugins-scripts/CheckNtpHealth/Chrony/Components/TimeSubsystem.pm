@@ -1,5 +1,5 @@
-package Classes::Chrony::Components::TimeSubsystem;
-our @ISA = qw(Classes::GenericDaemonWithPeers::Components::TimeSubsystem);
+package CheckNtpHealth::Chrony::Components::TimeSubsystem;
+our @ISA = qw(CheckNtpHealth::GenericDaemonWithPeers::Components::TimeSubsystem);
 use strict;
 
 sub init {
@@ -10,8 +10,9 @@ sub init {
     my $peer = {};
     while (<NTPQ>) {
       chomp;
+      $self->debug($_);
       if (/^(.)(.)\s+([^\s]+?)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s+([+-]*\d+[\w]+)\s*\[\s*([+-]*\d+[\w]+)\]\s+\+\/\-\s+(\d+\w+)/) {
-        push(@{$self->{peers}}, Classes::Chrony::Components::TimeSubsystem::Peer->new(
+        push(@{$self->{peers}}, CheckNtpHealth::Chrony::Components::TimeSubsystem::Peer->new(
             mode => $1,
             state => $2,
             refid => $3,
@@ -50,7 +51,7 @@ sub get_candidates {
 }
 
 
-package Classes::Chrony::Components::TimeSubsystem::Peer;
+package CheckNtpHealth::Chrony::Components::TimeSubsystem::Peer;
 our @ISA = qw(Monitoring::GLPlugin::TableItem);
 
 sub finish {

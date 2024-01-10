@@ -7,15 +7,15 @@ GL_MODULES=\
   ../GLPlugin/lib/Monitoring/GLPlugin/Item.pm \
   ../GLPlugin/lib/Monitoring/GLPlugin/TableItem.pm
 EXTRA_MODULES=\
-  Classes/GenericDaemonWithPeers/Components/TimeSubsystem.pm \
-  Classes/GenericDaemonWithPeers.pm \
-  Classes/Chrony/Components/TimeSubsystem.pm \
-  Classes/Chrony.pm \
-  Classes/NTP/Components/TimeSubsystem.pm \
-  Classes/NTP.pm \
-  Classes/Centrify/Components/TimeSubsystem.pm \
-  Classes/Centrify.pm \
-  Classes/Device.pm
+  CheckNtpHealth/GenericDaemonWithPeers/Components/TimeSubsystem.pm \
+  CheckNtpHealth/GenericDaemonWithPeers.pm \
+  CheckNtpHealth/Chrony/Components/TimeSubsystem.pm \
+  CheckNtpHealth/Chrony.pm \
+  CheckNtpHealth/NTP/Components/TimeSubsystem.pm \
+  CheckNtpHealth/NTP.pm \
+  CheckNtpHealth/Centrify/Components/TimeSubsystem.pm \
+  CheckNtpHealth/Centrify.pm \
+  CheckNtpHealth/Device.pm
 
 SED=/bin/sed
 GREP=/bin/grep

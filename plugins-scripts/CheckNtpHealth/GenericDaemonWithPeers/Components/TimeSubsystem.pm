@@ -1,10 +1,10 @@
-package Classes::GenericDaemonWithPeers::Components::TimeSubsystem;
+package CheckNtpHealth::GenericDaemonWithPeers::Components::TimeSubsystem;
 our @ISA = qw(Monitoring::GLPlugin::Item);
 use strict;
 
 sub check {
   my ($self) = @_;
-  (my $type = ref($self)) =~ s/Classes::(.*?)::.*/$1/g;
+  (my $type = ref($self)) =~ s/CheckNtpHealth::(.*?)::.*/$1/g;
   if (! $self->check_messages()) {
     if (my $sync_peer = $self->get_sync_peer()) {
       $sync_peer->check();
@@ -12,9 +12,9 @@ sub check {
       foreach (@candidates) {
         $_->check();
       }
-      $self->add_warning(sprintf 'no %s sync peer, only candidates', lc $type);
+      $self->add_warning(sprintf 'no %s sync peer/server, only candidates', lc $type);
     } else {
-      $self->add_warning(sprintf 'no %s sync peer, no candidates', lc $type);
+      $self->add_warning(sprintf 'no %s sync peer/server, no candidates', lc $type);
     }
   }
 }

@@ -1,4 +1,4 @@
-package Classes::Centrify::Components::TimeSubsystem;
+package CheckNtpHealth::Centrify::Components::TimeSubsystem;
 our @ISA = qw(Monitoring::GLPlugin::Item);
 use strict;
 

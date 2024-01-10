@@ -14,7 +14,7 @@ if ( ! grep /BEGIN/, keys %Monitoring::GLPlugin::) {
   }
 }
 
-my $plugin = Classes::Device->new(
+my $plugin = CheckNtpHealth::Device->new(
     shortname => '',
     usage => 'Usage: %s [ -v|--verbose ] [ -t <timeout> ] '.
         '--mode <what-to-do> '.

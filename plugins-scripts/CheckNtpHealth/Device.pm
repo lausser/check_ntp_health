@@ -1,4 +1,4 @@
-package Classes::Device;
+package CheckNtpHealth::Device;
 our @ISA = qw(Monitoring::GLPlugin);
 use strict;
 
@@ -13,14 +13,14 @@ sub classify {
       if ($self->opts->mode =~ /^my-/) {
         $self->load_my_extension();
       } elsif ($self->{productname} =~ /ntp/) {
-        bless $self, 'Classes::NTP';
-        $self->debug('using Classes::NTP');
+        bless $self, 'CheckNtpHealth::NTP';
+        $self->debug('using CheckNtpHealth::NTP');
       } elsif ($self->{productname} =~ /chrony/) {
-        bless $self, 'Classes::Chrony';
-        $self->debug('using Classes::Chrony');
+        bless $self, 'CheckNtpHealth::Chrony';
+        $self->debug('using CheckNtpHealth::Chrony');
       } elsif ($self->{productname} =~ /centrify/) {
-        bless $self, 'Classes::Centrify';
-        $self->debug('using Classes::Centrify');
+        bless $self, 'CheckNtpHealth::Centrify';
+        $self->debug('using CheckNtpHealth::Centrify');
       } else {
         $self->no_such_device();
       }

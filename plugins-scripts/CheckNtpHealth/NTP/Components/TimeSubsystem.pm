@@ -1,5 +1,5 @@
-package Classes::NTP::Components::TimeSubsystem;
-our @ISA = qw(Classes::GenericDaemonWithPeers::Components::TimeSubsystem);
+package CheckNtpHealth::NTP::Components::TimeSubsystem;
+our @ISA = qw(CheckNtpHealth::GenericDaemonWithPeers::Components::TimeSubsystem);
 use strict;
 
 sub init {
@@ -30,7 +30,7 @@ sub init {
   if (open(NTPQ, $ntpq." -np ".$ntpserver." 2>&1 |") ) {
     while (<NTPQ>) {
       if (/^(.)(.+?)\s+(.+?)\s+(\d+)\s+(.)\s+((\-)|([\d]+[mhd]*))\s+(\d+[mhd]*)\s+(\d+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)/) {
-        push(@{$self->{peers}}, Classes::NTP::Components::TimeSubsystem::Peer->new(
+        push(@{$self->{peers}}, CheckNtpHealth::NTP::Components::TimeSubsystem::Peer->new(
             fate => $1,
             remote => $2,
             refid => $3,
@@ -84,7 +84,7 @@ sub get_candidates {
 }
 
 
-package Classes::NTP::Components::TimeSubsystem::Peer;
+package CheckNtpHealth::NTP::Components::TimeSubsystem::Peer;
 our @ISA = qw(Monitoring::GLPlugin::TableItem);
 
 sub finish {

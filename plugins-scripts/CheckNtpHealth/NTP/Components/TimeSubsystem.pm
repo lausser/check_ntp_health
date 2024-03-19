@@ -29,7 +29,7 @@ sub init {
   my $ntpserver = $self->opts->hostname || "";
   if (open(NTPQ, $ntpq." -np ".$ntpserver." 2>&1 |") ) {
     while (<NTPQ>) {
-      if (/^(.)(.+?)\s+(.+?)\s+(\d+)\s+(.)\s+((\-)|([\d]+[mhd]*))\s+(\d+[mhd]*)\s+(\d+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)\s+(\-*[\d\.]+)/) {
+      if (/^(.)(.+?)\s+(.+?)\s+(\d+)\s+(.)\s+((\-)|([\d]+[mhd]*))\s+(\d+[mhd]*)\s+(\d+)\s+([\-\+]*[\d\.]+)\s+([\-\+]*[\d\.]+)\s+([\-\+]*[\d\.]+)/) {
         push(@{$self->{peers}}, CheckNtpHealth::NTP::Components::TimeSubsystem::Peer->new(
             fate => $1,
             remote => $2,
